@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sandbox Python Online</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- Skulpt (interpretador Python em JS) -->
+  <script src="https://cdn.jsdelivr.net/gh/skulpt/skulpt-dist/skulpt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/skulpt/skulpt-dist/skulpt-stdlib.js"></script>
+
+  <!-- Monaco Editor -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs/loader.min.js"></script>
+
+  <style>
+    body { background-color: #f8f9fa; }
+    #editor {
+      border: 1px solid #ccc;
+      height: 300px;
+      border-radius: 6px;
+    }
+    #output {
+      background: #000;
+      color: #0f0;
+      padding: 10px;
+      border-radius: 8px;
+      min-height: 150px;
+      font-family: monospace;
+      white-space: pre-wrap;
+    }
+    #notes {
+      width: 100%;
+      min-height: 150px;
+      font-family: monospace;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container py-4">
+    <h1 class="text-center mb-4">🐍 Sandbox Python Online</h1>
+    <p class="text-center">
+      Atalhos: <br>
+      <kbd>Ctrl+Enter</kbd> (executar) | 
+      <kbd>Shift+Enter</kbd> (executar + nova linha) | 
+      <kbd>Ctrl+L</kbd> (limpar saída) | 
+      <kbd>Ctrl+S</kbd> (salvar código).
+    </p>
+
+    <!-- Editor -->
+    <div id="editor"></div>
+
+    <div class="text-center mt-3">
+      <button class="btn btn-success px-4 me-2" onclick="runCode()">Executar ▶</button>
+      <button class="btn btn-danger px-4 me-2" onclick="clearOutput()">Limpar saída 🗑️</button>
+    </div>
+
+    <!-- Salvar / Carregar -->
+    <div class="mt-4 d-flex justify-content-center align-items-center gap-2">
+      <input type="text" id="filename" class="form-control w-auto" value="meu_codigo.py">
+      <button class="btn btn-primary px-4" onclick="saveCode()">Salvar código 💾</button>
+      <input type="file" id="fileInput" class="form-control w-auto" accept=".py" onchange="loadCode(event)" style="display:none;">
+      <button class="btn btn-secondary px-4" onclick="document.getElementById('fileInput').click()">Carregar código 📂</button>
+    </div>
+
+    <!-- Console -->
+    <h4 class="mt-4">Saída:</h4>
+    <div id="output"></div>
+
+    <!-- Notas -->
+    <h4 class="mt-4">📝 Anotações:</h4>
+    <textarea id="notes" class="form-control" placeholder="Escreva suas anotações aqui..."></textarea>
+  </div>
+
+  <!-- JS -->
+  <script>
+    let editor;
+    const STORAGE_KEY_CODE = "python_sandbox_code";
+    const STORAGE_KEY_NOTES = "python_sandbox_notes";
+
+    // Carrega o Monaco Editor
+    require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs' }});
+    require(["vs/editor/editor.main"], function () {
+      // Recupera código salvo no localStorage ou usa exemplo padrão
+      let savedCode = localStorage.getItem(STORAGE_KEY_CODE) || `# Exemplo: Hello World
+print("Olá, mundo!")
+
+for i in range(3):
+    print("Linha", i)`;
+
+      editor = monaco.editor.create(document.getElementById("editor"), {
+        value: savedCode,
+        language: "python",
+        theme: "vs-dark",
+        automaticLayout: true,
+        fontSize: 14,
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+      });
+
+      // Salva automaticamente no localStorage a cada mudança
+      editor.onDidChangeModelContent(() => {
+        localStorage.setItem(STORAGE_KEY_CODE, editor.getValue());
+      });
+
+      // Atalho Ctrl+Enter -> Executa
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, function() {
+        runCode();
+      });
+
+      // Atalho Shift+Enter -> Executa e nova linha
+      editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, function() {
+        runCode();
+        const pos = editor.getPosition();
+        editor.executeEdits("", [{
+          range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
+          text: "\n",
+          forceMoveMarkers: true
+        }]);
+        editor.setPosition({ lineNumber: pos.lineNumber + 1, column: 1 });
+        editor.focus();
+      });
+
+      // Atalho Ctrl+L -> Limpar saída
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyL, function() {
+        clearOutput();
+      });
+
+      // Atalho Ctrl+S -> Salvar código
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function() {
+        saveCode();
+      });
+    });
+
+    function builtinRead(x) {
+      if (Sk.builtinFiles === undefined || Sk.builtinFiles["files"][x] === undefined) {
+        throw "Arquivo não encontrado: '" + x + "'";
+      }
+      return Sk.builtinFiles["files"][x];
+    }
+
+    function runCode() {
+      let prog = editor.getValue();
+      let output = document.getElementById("output");
+      output.innerHTML = ""; // limpa a saída antes de rodar
+
+      Sk.configure({ 
+        output: (text) => output.innerHTML += text, 
+        read: builtinRead 
+      });
+
+      Sk.misceval.asyncToPromise(() => 
+        Sk.importMainWithBody("<stdin>", false, prog, true)
+      ).catch(err => {
+        output.innerHTML += "\n❌ Erro: " + err.toString();
+      });
+    }
+
+    function clearOutput() {
+      document.getElementById("output").innerHTML = "";
+    }
+
+    function saveCode() {
+      let code = editor.getValue();
+      let filename = document.getElementById("filename").value || "meu_codigo.py";
+      let blob = new Blob([code], { type: "text/x-python" });
+      let url = URL.createObjectURL(blob);
+      let a = document.createElement("a");
+      a.href = url;
+      a.download = filename.endsWith(".py") ? filename : filename + ".py";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function loadCode(event) {
+      let file = event.target.files[0];
+      if (!file) return;
+      let reader = new FileReader();
+      reader.onload = function(e) {
+        editor.setValue(e.target.result);
+        localStorage.setItem(STORAGE_KEY_CODE, e.target.result); // atualiza storage também
+      };
+      reader.readAsText(file);
+    }
+
+    // Notas - salvar/restaurar do localStorage
+    const notesArea = document.getElementById("notes");
+    notesArea.value = localStorage.getItem(STORAGE_KEY_NOTES) || "";
+    notesArea.addEventListener("input", () => {
+      localStorage.setItem(STORAGE_KEY_NOTES, notesArea.value);
+    });
+  </script>
+</body>
+</html>
